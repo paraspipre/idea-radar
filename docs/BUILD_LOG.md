@@ -21,3 +21,24 @@ A public log of building Idea Radar: an agentic pipeline that scans the internet
 - Reddit now requires approval for new API access, so Stack Exchange and GitHub Issues were added as official sources.
 
 **Next:** M0, the project skeleton (config, database, CLI, `radar doctor`).
+
+---
+
+## 2026-11-15: M0, the skeleton
+
+**What:** the boring foundation that keeps everything else honest:
+- **Layered config:** YAML defaults, a local override file, then `RADAR__*` env vars, all validated by pydantic. A typo in a key fails loudly instead of being silently ignored.
+- **Database:** SQLAlchemy 2.0 with Alembic migrations on SQLite, written so the same code moves to Postgres later. The first migration has only a `runs` table; each milestone adds its own tables in its own migration.
+- **CLI:** a Typer command, `radar`, with `doctor`, `config`, `db init` and `db status`.
+- **CI:** GitHub Actions running ruff, strict mypy, and pytest. The tests never touch the network or an LLM.
+
+**Key decision: a guard against surprise bills.** The Claude Agent SDK prefers an `ANTHROPIC_API_KEY` from the environment over your subscription login. One stray env var (or a line in `.env`) would quietly move every call onto API billing. So `radar doctor` checks for it, and the LLM layer will refuse to run if it's set. There's a test that plants a key in `.env` and expects doctor to catch it.
+
+**Small things I'm glad I did:**
+- A test that diffs the ORM models against the migrations, so they can never drift apart.
+- Timezone-aware UTC datetimes enforced at the column type, because SQLite silently drops time zones.
+- Doctor warns when the SQLite file sits inside OneDrive, since cloud sync and SQLite don't mix.
+
+**Numbers:** 0 LLM calls, 5 CLI commands, 28 tests.
+
+**Next:** M1, the LLM layer: one `LLMClient` interface, the Agent SDK backend, a content-hash cache, a budget governor, and rate-limit-aware exits.

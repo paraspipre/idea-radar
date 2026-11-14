@@ -1,0 +1,49 @@
+# Idea Radar default configuration.
+#
+# Override order (later wins):
+#   1. this file
+#   2. config/local.yaml          (gitignored, same shape, partial is fine)
+#   3. env vars RADAR__SECTION__KEY, e.g. RADAR__BUDGET__MAX_LLM_CALLS_PER_RUN=10
+#      (values are parsed as YAML scalars; .env is loaded first)
+#
+# Run `uv run radar config` to see the effective result.
+
+app:
+  data_dir: data            # relative to the project root, or absolute
+  log_level: INFO           # DEBUG | INFO | WARNING | ERROR
+  log_format: console       # console | json
+
+db:
+  url: null                 # null -> sqlite:///<data_dir>/radar.db
+
+llm:
+  backend: agent_sdk        # agent_sdk (Claude subscription login) | anthropic_api (stub)
+  models:                   # aliases passed to the Agent SDK `model` option
+    small: haiku            # extraction, cluster naming
+    strong: sonnet          # competition, sizing, skeptic
+  allow_api_key_env: false  # keep false: refuse to run if ANTHROPIC_API_KEY is set
+
+budget:
+  max_llm_calls_per_run: 21
+  per_stage:                # each must be <= max_llm_calls_per_run
+    extract: 10
+    name_clusters: 2
+    competition: 3
+    sizing: 3
+    skeptic: 3
+  stop_on_rate_limit_warning: true   # stop cleanly at the first `allowed_warning`
+
+focus:
+  name: Developer tools and B2B SaaS for small teams
+  description: >-
+    Problems that developers, technical founders, and small teams (2-50 people)
+    hit in their daily work, where a software product could plausibly be sold.
+  keywords:
+    - developer tool
+    - workflow
+    - automation
+    - small team
+    - saas
+    - integration
+    - devops
+    - api

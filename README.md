@@ -1,6 +1,6 @@
 # Idea Radar
 
-> **Status: planning.** No code yet. See [PLAN.md](PLAN.md) for the design and [docs/BUILD_LOG.md](docs/BUILD_LOG.md) for progress.
+> **Status: M0, the project skeleton.** Next up is M1, the LLM layer. Design: [PLAN.md](PLAN.md). Progress: [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
 
 Idea Radar scans public discussions (Hacker News, Stack Exchange, GitHub Issues, Product Hunt, App Store reviews) for real, unmet problems. It then:
 
@@ -9,23 +9,76 @@ Idea Radar scans public discussions (Hacker News, Stack Exchange, GitHub Issues,
 3. asks a skeptic agent to try to kill it,
 4. outputs a ranked, evidence-backed list.
 
-It's a multi-stage agentic data pipeline (LangGraph) with evals, designed to run nightly in small batches on a single Claude Pro subscription.
+It's a multi-stage agentic data pipeline (LangGraph) with evals, designed to run nightly in small batches on a single Claude Pro subscription. The current focus is **developer tools and B2B SaaS for small teams**; change it in `config/default.yaml`.
+
+## Architecture
 
 ```mermaid
 flowchart LR
-  S[Sources] --> P[Prefilter<br/>no LLM] --> X[Extract<br/>small model, batched]
-  X --> C[Embed + cluster<br/>local] --> D[Demand score]
-  D --> G{top-N}
-  G --> K[Competition<br/>web search] --> Z[Sizing<br/>LLM inputs, Python math]
-  Z --> SK[Skeptic] --> R[Rank]
-  R --> UI[Dashboard + weekly report]
+  subgraph Ingest["1 Ingest (no LLM)"]
+    SRC[HN / Stack Exchange / GitHub /<br/>Product Hunt / App Store] --> PF[Prefilter<br/>regex, thresholds, dedupe, PII scrub]
+  end
+  PF --> DB[(SQLite)]
+  subgraph Graph["LangGraph, stages 2-8"]
+    X[2 Extract<br/>small model, batched] --> C[3 Embed + cluster<br/>local]
+    C --> D[4 Demand score] --> G{top-N +<br/>budget}
+    G --> K[5 Competition<br/>web search] --> Z[6 Sizing<br/>LLM inputs, Python math]
+    Z --> SK[7 Skeptic] --> R[8 Rank]
+  end
+  DB <--> Graph
+  Graph --> LLM[LLMClient<br/>budget governor + cache<br/>Agent SDK backend]
+  DB --> UI[FastAPI + Next.js dashboard<br/>weekly report + static export]
 ```
 
 ## ⚠️ LLM access: read this before running
 
 - Idea Radar calls Claude through the **Claude Agent SDK, using the developer's own Claude subscription login**, for personal use only.
-- **Do not set `ANTHROPIC_API_KEY`.** If it is set, the SDK bills the API instead of your plan. Idea Radar refuses to start in that case.
+- **Do not set `ANTHROPIC_API_KEY` (or `ANTHROPIC_AUTH_TOKEN`).** If it is set, the SDK bills the API instead of your plan, and a Pro plan does not include API credits. Idea Radar refuses to start in that case, and `radar doctor` reports it.
 - **If you fork this:** use the API backend with your own API key. Anthropic does not allow third-party developers to offer claude.ai login in their products without approval.
+
+## Quickstart (Windows PowerShell)
+
+```powershell
+# 1. Install uv (once)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# 2. Install dependencies (uv fetches Python 3.12 if needed)
+uv sync
+
+# 3. Optional: keep the database outside OneDrive
+Copy-Item .env.example .env   # then uncomment RADAR__APP__DATA_DIR
+
+# 4. Check everything, then create the database
+uv run radar doctor
+uv run radar db init
+```
+
+## CLI
+
+| Command | What it does | LLM calls |
+|---|---|---|
+| `radar doctor` | Checks Python, config, API-key safety, data dir, database, SDK | 0 |
+| `radar config` | Prints the effective config (defaults + `config/local.yaml` + `RADAR__*` env) | 0 |
+| `radar db init` | Creates or upgrades the schema (Alembic); safe to re-run | 0 |
+| `radar db status` | Shows the current and latest revisions and the run count | 0 |
+| `radar version` | Prints the version | 0 |
+
+## Configuration
+
+`config/default.yaml` holds every setting, with comments. Override settings in `config/local.yaml` (gitignored) or with env vars named like `RADAR__BUDGET__MAX_LLM_CALLS_PER_RUN=10`. Secrets for sources go in `.env` (see `.env.example`).
+
+## Development
+
+```powershell
+uv run pytest        # tests never touch the network or an LLM
+uv run ruff check .
+uv run ruff format .
+uv run mypy
+```
+
+## Evals
+
+Coming in M3 and M4: extraction precision and recall, prefilter recall, and cluster pairwise F1 and ARI, measured on a hand-labeled set.
 
 ## License
 

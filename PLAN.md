@@ -193,7 +193,7 @@ idea-radar/
 │   └── sources.yaml          # per-source queries, tags, apps, limits
 ├── src/idea_radar/
 │   ├── cli.py                # Typer: doctor, db, ingest, run, report, eval, serve, budget
-│   ├── config.py  logging.py
+│   ├── config.py  log.py  doctor.py
 │   ├── db/                   # models.py, session.py, repositories/, alembic/
 │   ├── llm/
 │   │   ├── client.py         # LLMClient protocol, LLMResult
@@ -289,9 +289,9 @@ Each milestone ends in a state you can run, with the exact commands. I stop afte
 
 ---
 
-## 11. Open questions (answer these with your approval)
+## 11. Decisions (2026-11-15, recommended defaults accepted)
 
-1. **Reddit and Product Hunt access:** do you already have Reddit API credentials (a script app created before November 2025), or should Reddit stay credential-gated with Stack Exchange and GitHub Issues as the main sources? Do you have, or can you create, a Product Hunt developer token?
-2. **App reviews:** replace Google Play with the Apple App Store reviews feed (my recommendation), keep a Google Play scraper that is off by default, or drop app reviews?
-3. **Domain focus:** scan broadly, or focus on a niche (for example dev tools, B2B SaaS for small businesses, or prosumer apps)? This sets the default queries, Stack Exchange sites, GitHub repos, apps and prefilter keywords. A focus also tends to produce sharper results and makes a better build-in-public story.
-4. **Usage headroom:** how much of your Pro usage can a nightly run take? My default is at most 21 calls per run and a clean stop at the first `allowed_warning`, leaving the rest for your own Claude Code sessions.
+1. **Sources:** Reddit stays **credential-gated and off by default**. The main sources are Hacker News, Stack Exchange and GitHub Issues. Product Hunt turns on automatically when `PRODUCTHUNT_TOKEN` is set.
+2. **App reviews:** the **Apple App Store reviews feed** replaces Google Play. No Google Play scraper.
+3. **Domain focus:** **developer tools and B2B SaaS for small teams** (`focus` in `config/default.yaml`). This fits the main sources best. It is configurable; widen it later.
+4. **Usage headroom:** at most **21 LLM calls per nightly run**, split by stage, with a clean stop at the first `allowed_warning`.

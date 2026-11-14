@@ -28,4 +28,5 @@ Idea Radar finds unmet problems in public discussions, scores demand and competi
 - Tests use `FakeBackend` and fixtures, never the network or a real LLM.
 - Data hygiene: store short snippets (≤ 500 characters) and links only; no usernames or PII; `data/` stays gitignored.
 - Respect each source's terms of service and rate limits (PLAN.md §10). Use a generic User-Agent with no personal details.
-- Git: commit only when the user asks.
+- Git: the user has authorized committing and pushing to `origin/main` (github.com/paraspipre/idea-radar) at the end of each milestone. Otherwise commit only when asked.
+- Decisions already made are recorded in PLAN.md §11. Don't reopen them.

@@ -4,6 +4,9 @@ data/
 *.db-journal
 *.sqlite3
 
+# Personal config overrides
+config/local.yaml
+
 # Secrets
 .env
 .env.*
