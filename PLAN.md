@@ -104,9 +104,15 @@ After every LLM-using node, a conditional edge checks the governor. If the budge
 ```python
 class LLMClient(Protocol):
     async def complete_json(
-        self, *, task: str, model_tier: Literal["small", "strong"],
-        system: str, prompt: str, schema: type[BaseModel],
-        tools: Sequence[str] = (), max_turns: int = 2,
+        self,
+        *,
+        task: str,
+        model_tier: Literal["small", "strong"],
+        system: str,
+        prompt: str,
+        schema: type[BaseModel],
+        tools: Sequence[str] = (),
+        max_turns: int = 2,
     ) -> LLMResult[BaseModel]: ...
 ```
 Backends: `AgentSDKBackend` (default), `AnthropicAPIBackend` (a stub that raises NotImplemented until enabled), and `FakeBackend` (replays recorded JSON so tests never call a model). Model tiers map to aliases in YAML (`small: haiku`, `strong: sonnet`), so models change by config only.

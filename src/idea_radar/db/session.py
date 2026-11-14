@@ -37,5 +37,8 @@ def make_session_factory(engine: Engine) -> sessionmaker[Session]:
 
 
 def redact_url(url: str) -> str:
-    """URL safe to print (password hidden)."""
-    return make_url(url).render_as_string(hide_password=True)
+    """URL safe to print (password hidden; SQLite shown as a readable file path)."""
+    parsed = make_url(url)
+    if parsed.get_backend_name() == "sqlite":
+        return f"sqlite:///{parsed.database or ':memory:'}"
+    return parsed.render_as_string(hide_password=True)

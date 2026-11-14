@@ -13,7 +13,7 @@ import yaml
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from idea_radar import __version__
+from idea_radar import __version__, exit_codes
 from idea_radar.config import ConfigError, Settings, load_settings
 from idea_radar.db.migrate import current_revision, head_revision, upgrade_to_head
 from idea_radar.db.models import Run
@@ -63,7 +63,7 @@ def _settings(ctx: typer.Context) -> Settings:
         settings = load_settings(state.config_path)
     except ConfigError as exc:
         typer.secho(f"Config error: {exc}", fg=typer.colors.RED, err=True)
-        raise typer.Exit(code=2) from exc
+        raise typer.Exit(code=exit_codes.USAGE) from exc
     configure_logging(settings.app.log_level, settings.app.log_format)
     return settings
 
@@ -85,7 +85,7 @@ def doctor(ctx: typer.Context) -> None:
         typer.echo(f"{check.name.ljust(width)}  {check.detail}")
     if any(check.status is Status.FAIL for check in checks):
         typer.secho("\nSome checks failed.", fg=typer.colors.RED)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=exit_codes.FAILURE)
     typer.secho("\nNo failures.", fg=typer.colors.GREEN)
 
 
@@ -129,7 +129,7 @@ def db_status(ctx: typer.Context) -> None:
         typer.echo(f"Latest:   {head}")
         if current != head:
             typer.secho("Run: uv run radar db init", fg=typer.colors.YELLOW)
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=exit_codes.FAILURE)
         with Session(engine) as session:
             runs = session.scalar(select(func.count()).select_from(Run)) or 0
         typer.echo(f"Runs:     {runs}")

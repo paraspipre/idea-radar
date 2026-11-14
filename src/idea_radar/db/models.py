@@ -9,8 +9,9 @@ from enum import StrEnum
 from sqlalchemy import Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
+from idea_radar.clock import utc_now
 from idea_radar.db.base import Base
-from idea_radar.db.types import UTCDateTime, utcnow
+from idea_radar.db.types import UTCDateTime
 
 
 def new_id() -> str:
@@ -40,7 +41,7 @@ class Run(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     kind: Mapped[str] = mapped_column(String(32))
     status: Mapped[str] = mapped_column(String(32), default=RunStatus.RUNNING.value)
-    started_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True, default=utcnow)
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True, default=utc_now)
     finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     calls_used: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     config_hash: Mapped[str] = mapped_column(String(64))

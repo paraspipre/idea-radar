@@ -6,6 +6,7 @@
 #   3. env vars RADAR__SECTION__KEY, e.g. RADAR__BUDGET__MAX_LLM_CALLS_PER_RUN=10
 #      (values are parsed as YAML scalars; .env is loaded first)
 #
+# Unknown keys are errors. Secrets never go here: put source tokens in .env.
 # Run `uv run radar config` to see the effective result.
 
 app:
@@ -14,7 +15,7 @@ app:
   log_format: console       # console | json
 
 db:
-  url: null                 # null -> sqlite:///<data_dir>/radar.db
+  url: null                 # null -> sqlite:///<data_dir>/radar.db; any SQLAlchemy URL works
 
 llm:
   backend: agent_sdk        # agent_sdk (Claude subscription login) | anthropic_api (stub)
@@ -31,7 +32,9 @@ budget:
     competition: 3
     sizing: 3
     skeptic: 3
-  stop_on_rate_limit_warning: true   # stop cleanly at the first `allowed_warning`
+  # Stop after the current call when the SDK reports a rate-limit warning,
+  # leaving headroom for your own Claude use.
+  stop_on_rate_limit_warning: true
 
 focus:
   name: Developer tools and B2B SaaS for small teams

@@ -1,16 +1,13 @@
-# Local data, never committed (raw items, DB, LLM cache, checkpoints)
+# Local data, secrets and overrides (never committed)
 data/
 *.db
 *.db-journal
-*.sqlite3
-
-# Personal config overrides
-config/local.yaml
-
-# Secrets
+*.db-wal
+*.db-shm
 .env
 .env.*
 !.env.example
+config/local.yaml
 
 # Python
 __pycache__/
@@ -25,13 +22,15 @@ dist/
 build/
 *.egg-info/
 
-# Node / Next.js
+# Web dashboard (M6)
 node_modules/
 web/.next/
 web/out/
+.vercel/
 
-# Editors / OS
-.vscode/
-.idea/
+# OS and editors
 .DS_Store
 Thumbs.db
+.vscode/
+.idea/
+.claude/settings.local.json

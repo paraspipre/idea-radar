@@ -4,7 +4,9 @@ Idea Radar finds unmet problems in public discussions, scores demand and competi
 
 ## How to work in this repo
 - **Plan before code.** PLAN.md is the source of truth. Build **one milestone at a time**. After each one: stop, summarize the changes, and give the exact commands to run (PowerShell syntax; the user is on Windows).
-- **Never execute code, run tests, or make LLM calls yourself.** Running things costs the user's limited Claude Pro usage. Write carefully, re-read your own code for bugs, then hand over the commands.
+- **Running commands:** you may run non-LLM commands yourself: `uv sync`, `uv run pytest`, `uv run ruff`, `uv run mypy`, and `uv run radar` commands that make no LLM calls (doctor, config, db ...). Use PowerShell with `$env:Path = "C:\Users\paras\.local\bin;$env:Path"` because uv lives there. **Never run anything that makes an LLM call** (`radar llm smoke`, `radar run`, extraction/competition evals) without the user's explicit OK in that turn; give the command instead.
+- **One writer at a time:** only one Claude session may edit this folder. If files change on disk unexpectedly, stop and ask; never revert someone else's work without backing it up first.
+- Vercel is connected to the repo. Only static output (the M7 static export of `web/`) may ever be deployed there. Never deploy anything that can trigger LLM calls or needs the Claude login.
 - After every milestone, update **README.md** (keep the mermaid architecture diagram current) and **docs/BUILD_LOG.md** (one dated entry per milestone, written to be posted publicly: what was built, a key decision, a lesson, the numbers).
 - Ask at most 5 questions at a time, and only ones that are genuinely blocking. Challenge a default when you have a better option, and give the reason.
 - Before using any Claude Agent SDK API, check it against the official docs (code.claude.com/docs/en/agent-sdk) or the installed package. Never guess option names.

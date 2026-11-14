@@ -30,10 +30,9 @@ class Check:
 
 
 def check_python() -> Check:
+    # requires-python >= 3.12 is enforced at install time; this reports which one is running.
     version = ".".join(str(part) for part in sys.version_info[:3])
-    if sys.version_info >= (3, 12):
-        return Check("Python", Status.OK, version)
-    return Check("Python", Status.FAIL, f"{version}; Idea Radar needs 3.12+")
+    return Check("Python", Status.OK, f"{version} ({sys.executable})")
 
 
 def check_config(config_path: Path | None) -> tuple[Check, Settings | None]:

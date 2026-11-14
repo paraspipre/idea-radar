@@ -39,6 +39,8 @@ A public log of building Idea Radar: an agentic pipeline that scans the internet
 - Timezone-aware UTC datetimes enforced at the column type, because SQLite silently drops time zones.
 - Doctor warns when the SQLite file sits inside OneDrive, since cloud sync and SQLite don't mix.
 
-**Numbers:** 0 LLM calls, 5 CLI commands, 28 tests.
+**Lesson learned the funny way:** I had two AI coding sessions open on the same folder. Both started building M0, and they began overwriting each other's config format mid-run. Rule from now on: one writer per folder. The good ideas from the second session (shared exit codes, context-bound log fields) were merged in by hand.
+
+**Numbers:** 0 LLM calls, 5 CLI commands, 28 tests, strict mypy on the code and the tests.
 
 **Next:** M1, the LLM layer: one `LLMClient` interface, the Agent SDK backend, a content-hash cache, a budget governor, and rate-limit-aware exits.

@@ -10,10 +10,6 @@ from sqlalchemy.engine import Dialect
 from sqlalchemy.types import TypeDecorator
 
 
-def utcnow() -> datetime:
-    return datetime.now(UTC)
-
-
 class UTCDateTime(TypeDecorator[datetime]):
     """Timezone-aware UTC datetimes on every backend.
 
