@@ -1,6 +1,6 @@
 # Idea Radar
 
-> **Status: M0, the project skeleton.** Next up is M1, the LLM layer. Design: [PLAN.md](PLAN.md). Progress: [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
+> **Status: M1, the LLM layer, is done.** Next up is M2, ingestion. Design: [PLAN.md](PLAN.md). Progress: [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
 
 Idea Radar scans public discussions (Hacker News, Stack Exchange, GitHub Issues, Product Hunt, App Store reviews) for real, unmet problems. It then:
 
@@ -61,7 +61,23 @@ uv run radar db init
 | `radar config` | Prints the effective config (defaults + `config/local.yaml` + `RADAR__*` env) | 0 |
 | `radar db init` | Creates or upgrades the schema (Alembic); safe to re-run | 0 |
 | `radar db status` | Shows the current and latest revisions and the run count | 0 |
+| `radar llm smoke` | Makes one tiny real call: checks subscription auth and measures per-call token overhead | **1** |
+| `radar budget` | Lists recent runs with calls, cache hits, tokens and API-equivalent cost | 0 |
 | `radar version` | Prints the version | 0 |
+
+Exit code **75** means the run stopped cleanly because of its call budget or a Claude usage limit. The next scheduled run resumes, and it won't start before the limit resets.
+
+## How LLM calls work
+
+Every call goes through one `LLMClient`:
+
+1. **Cache:** the key is a sha256 of the backend, model, effort, prompt version, schema and input. A cache hit is free.
+2. **Budget:** the governor checks the per-run and per-stage call limits.
+3. **Call:** the Agent SDK backend runs the request with no CLAUDE.md or settings, no tools, an empty sandbox folder as the working directory, a short system prompt, and a JSON-schema output.
+4. **Retries:** only transient failures are retried (5xx, overloaded, timeouts), with exponential backoff.
+5. **Validation:** the output is checked against a pydantic schema before it is cached.
+6. **Logging:** each attempt is written to `llm_calls` with tokens, the credential that paid for it (`apiKeySource`), and the rate-limit state.
+7. **Rate limits:** a warning stops the run after the current call; a rejection saves the reset time and exits with 75.
 
 ## Configuration
 

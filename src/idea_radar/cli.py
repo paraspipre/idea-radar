@@ -3,22 +3,31 @@
 No `from __future__ import annotations` here: Typer inspects parameter annotations at runtime.
 """
 
+import asyncio
 import os
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, cast
 
 import typer
 import yaml
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from pydantic import BaseModel
+from sqlalchemy import Engine, case, func, select
+from sqlalchemy.orm import Session, sessionmaker
 
 from idea_radar import __version__, exit_codes
+from idea_radar.clock import utc_now
 from idea_radar.config import ConfigError, Settings, load_settings
 from idea_radar.db.migrate import current_revision, head_revision, upgrade_to_head
-from idea_radar.db.models import Run
-from idea_radar.db.session import make_engine, redact_url
+from idea_radar.db.models import LLMCall, LLMCallStatus, Run, RunKind, RunStatus
+from idea_radar.db.runs import finish_run, rate_limit_block, start_run
+from idea_radar.db.session import make_engine, make_session_factory, redact_url
 from idea_radar.doctor import Status, run_checks
+from idea_radar.llm.errors import LLMConfigError, LLMError, RateLimited, StopRun
+from idea_radar.llm.factory import build_backend, build_client
+from idea_radar.llm.prompts import load_prompt
+from idea_radar.llm.types import LLMRequest, LLMResult
 from idea_radar.log import configure_logging
 
 app = typer.Typer(
@@ -29,6 +38,8 @@ app = typer.Typer(
 )
 db_app = typer.Typer(help="Database schema management.", no_args_is_help=True)
 app.add_typer(db_app, name="db")
+llm_app = typer.Typer(help="LLM layer utilities.", no_args_is_help=True)
+app.add_typer(llm_app, name="llm")
 
 _STATUS_COLORS = {
     Status.OK: typer.colors.GREEN,
@@ -133,5 +144,184 @@ def db_status(ctx: typer.Context) -> None:
         with Session(engine) as session:
             runs = session.scalar(select(func.count()).select_from(Run)) or 0
         typer.echo(f"Runs:     {runs}")
+    finally:
+        engine.dispose()
+
+
+def _open_db(settings: Settings) -> tuple[Engine, sessionmaker[Session]]:
+    """Engine + session factory, or exit with a hint if the schema is not at the latest revision."""
+    engine = make_engine(settings.db_url)
+    if current_revision(engine) != head_revision(settings.db_url):
+        engine.dispose()
+        typer.secho("Database is not up to date. Run: uv run radar db init", fg=typer.colors.YELLOW)
+        raise typer.Exit(code=exit_codes.FAILURE)
+    return engine, make_session_factory(engine)
+
+
+class Tier(StrEnum):
+    small = "small"
+    strong = "strong"
+
+
+class SmokeReply(BaseModel):
+    ok: bool
+    echo: str
+
+
+SMOKE_PROMPT = "Set ok to true and echo to the single word: radar"
+
+
+@llm_app.command("smoke")
+def llm_smoke(
+    ctx: typer.Context,
+    tier: Annotated[Tier, typer.Option(help="Model tier to test.")] = Tier.small,
+) -> None:
+    """Make ONE tiny real LLM call: checks subscription auth and measures per-call overhead."""
+    settings = _settings(ctx)
+    engine, factory = _open_db(settings)
+    try:
+        blocked_until = rate_limit_block(factory, now=utc_now())
+        if blocked_until is not None:
+            typer.secho(
+                f"Usage limit active until {blocked_until:%Y-%m-%d %H:%M} UTC; not calling.",
+                fg=typer.colors.YELLOW,
+            )
+            raise typer.Exit(code=exit_codes.TEMPFAIL)
+        try:
+            backend = build_backend(settings)
+        except LLMConfigError as exc:
+            typer.secho(str(exc), fg=typer.colors.RED, err=True)
+            raise typer.Exit(code=exit_codes.FAILURE) from exc
+
+        run_id = start_run(factory, kind=RunKind.SMOKE.value, config_hash=settings.fingerprint())
+        client = build_client(settings, factory=factory, run_id=run_id, backend=backend)
+        prompt = load_prompt("smoke", 1)
+        request = LLMRequest(
+            stage="smoke",
+            prompt_name=prompt.name,
+            prompt_version=prompt.version,
+            system=prompt.text,
+            prompt=SMOKE_PROMPT,
+            schema=SmokeReply,
+            tier="strong" if tier is Tier.strong else "small",
+            use_cache=False,
+        )
+        try:
+            result = asyncio.run(client.complete_json(request))
+        except StopRun as exc:
+            limited = isinstance(exc, RateLimited)
+            finish_run(
+                factory,
+                run_id,
+                status=RunStatus.RATE_LIMITED if limited else RunStatus.BUDGET_EXHAUSTED,
+                calls_used=client.governor.calls,
+                resets_at=client.governor.resets_at,
+                notes=str(exc),
+            )
+            typer.secho(f"Stopped: {exc}", fg=typer.colors.YELLOW)
+            raise typer.Exit(code=exit_codes.TEMPFAIL) from exc
+        except LLMError as exc:
+            finish_run(
+                factory,
+                run_id,
+                status=RunStatus.ERROR,
+                calls_used=client.governor.calls,
+                notes=str(exc),
+            )
+            typer.secho(f"LLM call failed: {exc}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(code=exit_codes.FAILURE) from exc
+
+        finish_run(
+            factory,
+            run_id,
+            status=RunStatus.COMPLETED,
+            calls_used=client.governor.calls,
+            resets_at=client.governor.resets_at,
+        )
+        _print_smoke(result, prompt_chars=len(prompt.text) + len(SMOKE_PROMPT))
+    finally:
+        engine.dispose()
+
+
+def _print_smoke(result: LLMResult[SmokeReply], *, prompt_chars: int) -> None:
+    usage = result.usage
+    ok = result.data.ok and result.data.echo.strip().lower() == "radar"
+    typer.secho(
+        f"Reply:          ok={result.data.ok} echo={result.data.echo!r}",
+        fg=typer.colors.GREEN if ok else typer.colors.YELLOW,
+    )
+    typer.echo(f"Models:         {', '.join(usage.models) or '(not reported)'}")
+    auth = result.auth_source or "(not reported)"
+    typer.echo(f"Auth source:    {auth}")
+    if "API_KEY" in auth.upper() or "AUTH_TOKEN" in auth.upper():
+        typer.secho(
+            "WARNING: this call was paid by an API credential, not your subscription!",
+            fg=typer.colors.RED,
+        )
+    typer.echo(
+        f"Input tokens:   {usage.input_tokens}  (our prompt is ~{prompt_chars // 4}; "
+        "the rest is fixed per-call overhead)"
+    )
+    typer.echo(
+        f"Cache tokens:   read={usage.cache_read_tokens} created={usage.cache_creation_tokens}"
+    )
+    typer.echo(f"Output tokens:  {usage.output_tokens}")
+    typer.echo(f"Turns:          {usage.num_turns}   Duration: {usage.duration_ms / 1000:.1f}s")
+    if usage.cost_usd_est is not None:
+        typer.echo(f"API-equivalent: ${usage.cost_usd_est:.4f} (estimate; not billed on Pro)")
+    if result.rate_limit is not None:
+        rl = result.rate_limit
+        resets = f", resets {rl.resets_at:%Y-%m-%d %H:%M} UTC" if rl.resets_at else ""
+        util = f", {rl.utilization:.0%} used" if rl.utilization is not None else ""
+        typer.echo(f"Rate limit:     {rl.status} ({rl.window or 'window?'}{util}{resets})")
+
+
+@app.command()
+def budget(
+    ctx: typer.Context,
+    runs: Annotated[int, typer.Option(min=1, help="How many recent runs to show.")] = 10,
+) -> None:
+    """Recent runs with LLM calls, cache hits, tokens and API-equivalent cost. No LLM calls."""
+    settings = _settings(ctx)
+    engine, factory = _open_db(settings)
+    try:
+        real_call = case((LLMCall.status != LLMCallStatus.CACHE_HIT.value, 1), else_=0)
+        cache_hit = case((LLMCall.status == LLMCallStatus.CACHE_HIT.value, 1), else_=0)
+        stmt = (
+            select(
+                Run,
+                func.coalesce(func.sum(real_call), 0),
+                func.coalesce(func.sum(cache_hit), 0),
+                func.coalesce(func.sum(LLMCall.input_tokens), 0),
+                func.coalesce(func.sum(LLMCall.output_tokens), 0),
+                func.coalesce(func.sum(LLMCall.cost_usd_est), 0.0),
+            )
+            .outerjoin(LLMCall, LLMCall.run_id == Run.id)
+            .group_by(Run.id)
+            .order_by(Run.started_at.desc())
+            .limit(runs)
+        )
+        with factory() as session:
+            rows = session.execute(stmt).all()
+        if not rows:
+            typer.echo("No runs yet.")
+        else:
+            header = (
+                f"{'started (UTC)':<17} {'kind':<9} {'status':<17} "
+                f"{'calls':>5} {'hits':>5} {'in tok':>8} {'out tok':>8} {'est $':>8}"
+            )
+            typer.echo(header)
+            typer.echo("-" * len(header))
+            for run, calls, hits, tok_in, tok_out, cost in rows:
+                typer.echo(
+                    f"{run.started_at:%Y-%m-%d %H:%M} {run.kind:<9} {run.status:<17} "
+                    f"{calls:>5} {hits:>5} {tok_in:>8} {tok_out:>8} {cost:>8.4f}"
+                )
+        blocked_until = rate_limit_block(factory, now=utc_now())
+        if blocked_until is not None:
+            typer.secho(
+                f"\nUsage limit active until {blocked_until:%Y-%m-%d %H:%M} UTC.",
+                fg=typer.colors.YELLOW,
+            )
     finally:
         engine.dispose()

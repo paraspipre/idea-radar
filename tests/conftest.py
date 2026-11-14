@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import os
 import shutil
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from sqlalchemy.orm import Session, sessionmaker
+
+from idea_radar.db.migrate import upgrade_to_head
+from idea_radar.db.session import make_engine, make_session_factory
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -31,3 +36,13 @@ def project(tmp_path: Path) -> Path:
 @pytest.fixture
 def config_path(project: Path) -> Path:
     return project / "config" / "default.yaml"
+
+
+@pytest.fixture
+def session_factory(tmp_path: Path) -> Iterator[sessionmaker[Session]]:
+    """A migrated throwaway SQLite database."""
+    url = f"sqlite:///{(tmp_path / 'db' / 'test.db').as_posix()}"
+    upgrade_to_head(url)
+    engine = make_engine(url)
+    yield make_session_factory(engine)
+    engine.dispose()

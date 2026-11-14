@@ -20,6 +20,7 @@ from pydantic import (
     ConfigDict,
     Field,
     NonNegativeInt,
+    PositiveFloat,
     PositiveInt,
     ValidationError,
     model_validator,
@@ -49,15 +50,29 @@ class DbConfig(_Section):
     url: str | None = None
 
 
+EffortLevel = Literal["low", "medium", "high", "xhigh", "max"]
+
+
 class LLMModels(_Section):
     small: str = "haiku"
     strong: str = "sonnet"
 
 
+class LLMEffort(_Section):
+    small: EffortLevel = "low"
+    strong: EffortLevel = "medium"
+
+
 class LLMConfig(_Section):
     backend: Literal["agent_sdk", "anthropic_api"] = "agent_sdk"
     models: LLMModels = Field(default_factory=LLMModels)
+    effort: LLMEffort = Field(default_factory=LLMEffort)
     allow_api_key_env: bool = False
+    timeout_s: PositiveInt = 300
+    max_attempts: PositiveInt = 3
+    backoff_base_s: PositiveFloat = 2.0
+    # Ceiling on the SDK's API-equivalent cost estimate for one call (runaway guard).
+    max_budget_usd_per_call: PositiveFloat | None = 0.5
 
 
 class BudgetConfig(_Section):

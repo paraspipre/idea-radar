@@ -9,10 +9,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from idea_radar.llm.errors import LLMConfigError
+
 CREDENTIAL_ENV_VARS: tuple[str, ...] = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 
 
-class ApiCredentialInEnvError(RuntimeError):
+class ApiCredentialInEnvError(LLMConfigError):
     """An API credential is present while the subscription-backed backend is selected."""
 
 

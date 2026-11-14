@@ -22,7 +22,14 @@ llm:
   models:                   # aliases passed to the Agent SDK `model` option
     small: haiku            # extraction, cluster naming
     strong: sonnet          # competition, sizing, skeptic
+  effort:                   # Agent SDK `effort`: low | medium | high | xhigh | max
+    small: low
+    strong: medium
   allow_api_key_env: false  # keep false: refuse to run if ANTHROPIC_API_KEY is set
+  timeout_s: 300            # per call
+  max_attempts: 3           # retries only for transient errors (5xx, overloaded, timeouts)
+  backoff_base_s: 2.0
+  max_budget_usd_per_call: 0.5   # runaway guard on the SDK's API-equivalent cost estimate
 
 budget:
   max_llm_calls_per_run: 21

@@ -27,7 +27,7 @@ def test_doctor_passes_on_fresh_project(config_path: Path) -> None:
 def test_db_init_then_status_then_doctor(config_path: Path) -> None:
     init = runner.invoke(app, ["--config", str(config_path), "db", "init"])
     assert init.exit_code == 0, init.output
-    assert "revision 0001" in init.output
+    assert "revision 0002" in init.output
 
     status = runner.invoke(app, ["--config", str(config_path), "db", "status"])
     assert status.exit_code == 0, status.output
@@ -35,7 +35,7 @@ def test_db_init_then_status_then_doctor(config_path: Path) -> None:
 
     doctor = runner.invoke(app, ["--config", str(config_path), "doctor"])
     assert doctor.exit_code == 0, doctor.output
-    assert "revision 0001" in doctor.output
+    assert "revision 0002" in doctor.output
 
 
 def test_db_status_before_init_exits_nonzero(config_path: Path) -> None:
