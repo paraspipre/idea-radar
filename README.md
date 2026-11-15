@@ -71,11 +71,23 @@ uv run radar db init
 | `radar clusters [--members]` | Lists clusters by demand score, with the component breakdown | 0 |
 | `radar recluster --yes` | Rebuilds clusters from stored embeddings after you tune thresholds | 0 |
 | `radar eval label-pairs` / `radar eval clusters` | Hand-labels problem pairs; pairwise P/R/F1, noise ratio, silhouette | 0 |
+| `radar opportunities` | Shows the ranking: score = demand × (1−competition) × monetization × feasibility, with TAM/SAM/SOM and the skeptic verdict | 0 |
 | `radar llm smoke` | Makes one tiny real call: checks subscription auth and measures per-call token overhead | **1** |
 | `radar budget` | Lists recent runs with calls, cache hits, tokens and API-equivalent cost | 0 |
 | `radar version` | Prints the version | 0 |
 
 Exit code **75** means the run stopped cleanly because of its call budget or a Claude usage limit. The next scheduled run resumes, and it won't start before the limit resets.
+
+## Stages 5–8: from cluster to ranked opportunity
+
+Only the **top-N clusters by demand** (default 3) get these stages, and only when an analysis is missing, older than 30 days, or the cluster has grown more than 25% since.
+
+| Stage | Model | Tools | What it produces |
+|---|---|---|---|
+| 5 Competition | strong | WebSearch, WebFetch (≤4 searches, ≤2 fetches) | Competitors with pricing and complaints, crowdedness, incumbent dissatisfaction, and **market facts** (number + URL + exact quote) |
+| 6 Sizing | strong | none | The model proposes *inputs* only (population, shares, price), each tied to a stored fact ID or an explicit assumption. **Python computes TAM/SAM/SOM** (low/base/high). Uncited "facts" are downgraded to low-confidence assumptions |
+| 7 Skeptic | strong | none | Verdict (kill / weak / survives), objections with severity, and what would change its mind |
+| 8 Rank | none | none | Score = demand × (1 − competition) × monetization × feasibility; each factor is floored at 0.05, and the raw product is kept |
 
 ## Sources (stage 1, no LLM)
 

@@ -46,7 +46,7 @@ class PipelineContext:
     client: LLMClient
     embedder: Embedder
     run_id: str
-    until: str = "demand"
+    until: str = ""  # empty = run every registered stage
     skip: frozenset[str] = frozenset()
     stop: StopRun | None = None
     ranked: list[RankedCluster] = field(default_factory=list)

@@ -237,3 +237,57 @@ class DemandScore(Base):
     components: Mapped[dict[str, Any]] = mapped_column(JSON)
     weekly_counts: Mapped[list[int]] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True, default=utc_now)
+
+
+class AnalysisKind(StrEnum):
+    COMPETITION = "competition"
+    SIZING = "sizing"
+    SKEPTIC = "skeptic"
+
+
+class Analysis(Base):
+    """Output of an expensive stage (5-7) for one cluster; ``payload`` is the validated JSON."""
+
+    __tablename__ = "analyses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    cluster_id: Mapped[int] = mapped_column(ForeignKey("clusters.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(16), index=True)
+    run_id: Mapped[str | None] = mapped_column(ForeignKey("runs.id"))
+    cluster_size: Mapped[int] = mapped_column(Integer)  # re-analyse after material growth
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True, default=utc_now)
+
+
+class MarketFact(Base):
+    """A number found on the web during competition research; sizing may only cite these."""
+
+    __tablename__ = "market_facts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    cluster_id: Mapped[int] = mapped_column(ForeignKey("clusters.id"), index=True)
+    claim: Mapped[str] = mapped_column(Text)
+    value: Mapped[float | None] = mapped_column(Float)
+    unit: Mapped[str | None] = mapped_column(String(64))
+    source_url: Mapped[str] = mapped_column(Text)
+    quote: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+
+
+class Opportunity(Base):
+    """Stage 8: the ranked, explained opportunity score for a cluster at one run."""
+
+    __tablename__ = "opportunities"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    cluster_id: Mapped[int] = mapped_column(ForeignKey("clusters.id"), index=True)
+    run_id: Mapped[str | None] = mapped_column(ForeignKey("runs.id"))
+    rank: Mapped[int] = mapped_column(Integer)
+    score: Mapped[float] = mapped_column(Float)
+    demand: Mapped[float] = mapped_column(Float)
+    competition: Mapped[float] = mapped_column(Float)
+    monetization: Mapped[float] = mapped_column(Float)
+    feasibility: Mapped[float] = mapped_column(Float)
+    verdict: Mapped[str | None] = mapped_column(String(16))
+    breakdown: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True, default=utc_now)

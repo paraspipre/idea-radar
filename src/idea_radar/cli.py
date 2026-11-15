@@ -64,6 +64,7 @@ from idea_radar.pipeline.extract import (
     run_extraction,
 )
 from idea_radar.pipeline.graph import EXTRA_STAGES, PipelineContext, pipeline_stages, run_pipeline
+from idea_radar.pipeline.opportunity import latest_opportunities, money  # registers stages 5-8
 
 app = typer.Typer(
     name="radar",
@@ -888,3 +889,36 @@ def recluster_command(
         f"Removed {removed} clusters. " + ", ".join(f"{k}={v}" for k, v in vars(report).items())
     )
     typer.echo("Next: uv run radar run --skip extract   (names clusters, scores demand)")
+
+
+@app.command("opportunities")
+def opportunities_command(
+    ctx: typer.Context,
+    top: Annotated[int, typer.Option(min=1, help="How many to show.")] = 10,
+) -> None:
+    """The ranked opportunities from the latest rank stage, with the score breakdown. No LLM."""
+    settings = _settings(ctx)
+    engine, factory = _open_db(settings)
+    try:
+        rows = latest_opportunities(factory)[:top]
+    finally:
+        engine.dispose()
+    if not rows:
+        typer.echo("No ranked opportunities yet. Run: uv run radar run")
+        return
+    for row in rows:
+        f = row["factors"]
+        typer.secho(
+            f"#{row['rank']}  {row['score']:.4f}  {row['name']}  "
+            f"[skeptic: {row['verdict'] or 'n/a'}]",
+            bold=True,
+        )
+        typer.echo(
+            f"     demand {f['demand']:.2f} x (1-competition) {f['1-competition']:.2f} x "
+            f"monetization {f['monetization']:.2f} x feasibility {f['feasibility']:.2f}"
+        )
+        if row.get("som"):
+            typer.echo(
+                f"     TAM {money(row['tam'][1])}  SAM {money(row['sam'][1])}  "
+                f"SOM {money(row['som'][1])}  ({row['sourced_share']:.0%} of inputs sourced)"
+            )
