@@ -30,12 +30,14 @@ def migrated_engine(db_url: str) -> Iterator[Engine]:
 
 
 def test_upgrade_reaches_head(migrated_engine: Engine, db_url: str) -> None:
-    assert current_revision(migrated_engine) == head_revision(db_url) == "0002"
+    head = head_revision(db_url)
+    assert head is not None
+    assert current_revision(migrated_engine) == head
 
 
 def test_upgrade_is_idempotent(migrated_engine: Engine, db_url: str) -> None:
     upgrade_to_head(db_url)
-    assert current_revision(migrated_engine) == "0002"
+    assert current_revision(migrated_engine) == head_revision(db_url)
 
 
 def test_models_match_migrations(migrated_engine: Engine) -> None:

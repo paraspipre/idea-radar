@@ -8,6 +8,7 @@ dependencies = [
     "alembic>=1.14",
     # Pinned: all SDK usage lives in llm/agent_sdk.py; re-verify the docs before bumping.
     "claude-agent-sdk==0.2.182",
+    "httpx>=0.27",
     "pydantic>=2.10",
     "python-dotenv>=1.0",
     "pyyaml>=6.0.2",

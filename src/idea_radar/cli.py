@@ -24,6 +24,9 @@ from idea_radar.db.models import LLMCall, LLMCallStatus, Run, RunKind, RunStatus
 from idea_radar.db.runs import finish_run, rate_limit_block, start_run
 from idea_radar.db.session import make_engine, make_session_factory, redact_url
 from idea_radar.doctor import Status, run_checks
+from idea_radar.ingest.runner import run_ingest
+from idea_radar.ingest.sources import ALL_SOURCES
+from idea_radar.ingest.store import IngestStore
 from idea_radar.llm.errors import LLMConfigError, LLMError, RateLimited, StopRun
 from idea_radar.llm.factory import build_backend, build_client
 from idea_radar.llm.prompts import load_prompt
@@ -40,6 +43,10 @@ db_app = typer.Typer(help="Database schema management.", no_args_is_help=True)
 app.add_typer(db_app, name="db")
 llm_app = typer.Typer(help="LLM layer utilities.", no_args_is_help=True)
 app.add_typer(llm_app, name="llm")
+ingest_app = typer.Typer(
+    help="Stage 1: fetch, clean and prefilter items (no LLM).", no_args_is_help=True
+)
+app.add_typer(ingest_app, name="ingest")
 
 _STATUS_COLORS = {
     Status.OK: typer.colors.GREEN,
@@ -325,3 +332,83 @@ def budget(
             )
     finally:
         engine.dispose()
+
+
+SourceOption = Annotated[
+    list[str] | None,
+    typer.Option("--source", "-s", help=f"Only these sources: {', '.join(ALL_SOURCES)}."),
+]
+
+
+@ingest_app.command("run")
+def ingest_run(ctx: typer.Context, source: SourceOption = None) -> None:
+    """Fetch new items from every enabled source since its cursor, prefilter and store them."""
+    settings = _settings(ctx)
+    unknown = sorted(set(source or []) - set(ALL_SOURCES))
+    if unknown:
+        typer.secho(f"Unknown source(s): {', '.join(unknown)}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=exit_codes.USAGE)
+    engine, factory = _open_db(settings)
+    try:
+        report = run_ingest(settings, factory, only=source)
+    finally:
+        engine.dispose()
+
+    header = (
+        f"{'source':<14} {'queries':>7} {'reqs':>5} {'fetched':>7} {'new':>5} "
+        f"{'passed':>6} {'rejected':>8} {'dupes':>5} {'updated':>7}"
+    )
+    typer.echo(header)
+    typer.echo("-" * len(header))
+    for s in report.sources:
+        typer.echo(
+            f"{s.source:<14} {s.queries:>7} {s.requests:>5} {s.fetched:>7} {s.new:>5} "
+            f"{s.passed:>6} {s.rejected:>8} {s.duplicates:>5} {s.updated:>7}"
+        )
+        for error in s.errors:
+            typer.secho(f"  ! {error[:160]}", fg=typer.colors.YELLOW)
+    for note in report.notes:
+        typer.secho(f"note: {note}", fg=typer.colors.BRIGHT_BLACK)
+    if report.purged:
+        typer.echo(f"Purged {report.purged} old rejected/duplicate items (retention policy).")
+    typer.echo("LLM calls: 0")
+    if report.failed_completely:
+        typer.secho("Every source failed.", fg=typer.colors.RED)
+        raise typer.Exit(code=exit_codes.FAILURE)
+
+
+@ingest_app.command("stats")
+def ingest_stats(
+    ctx: typer.Context,
+    top: Annotated[int, typer.Option(min=0, help="Show the N highest-scoring passed items.")] = 10,
+) -> None:
+    """Counts per source and prefilter status, plus the top passed items. No LLM calls."""
+    settings = _settings(ctx)
+    engine, factory = _open_db(settings)
+    try:
+        store = IngestStore(factory)
+        counts = store.counts()
+        best = store.top_passed(top) if top else []
+    finally:
+        engine.dispose()
+    if not counts:
+        typer.echo("No items yet. Run: uv run radar ingest run")
+        return
+    table: dict[str, dict[str, int]] = {}
+    for src, status, n in counts:
+        table.setdefault(src, {})[status] = n
+    typer.echo(f"{'source':<14} {'passed':>7} {'rejected':>9} {'duplicate':>10} {'total':>7}")
+    for src, by_status in sorted(table.items()):
+        passed = by_status.get("passed", 0)
+        rejected = by_status.get("rejected", 0)
+        dupes = by_status.get("duplicate", 0)
+        total = passed + rejected + dupes
+        typer.echo(f"{src:<14} {passed:>7} {rejected:>9} {dupes:>10} {total:>7}")
+    if best:
+        typer.echo("")
+        typer.echo(f"Top {len(best)} passed items (what the LLM will see first; $ = pays):")
+        for item in best:
+            label = (item.title or item.snippet)[:80]
+            flag = " $" if item.has_wtp else ""
+            typer.echo(f"  {item.prefilter_score:>5.2f}{flag:<2} [{item.source}] {label}")
+            typer.secho(f"         {item.url}", fg=typer.colors.BRIGHT_BLACK)

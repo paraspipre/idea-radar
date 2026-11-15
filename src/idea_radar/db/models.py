@@ -7,7 +7,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import JSON, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from idea_radar.clock import utc_now
@@ -101,3 +101,45 @@ class LLMCall(Base):
     cache_key: Mapped[str | None] = mapped_column(String(64))
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True, default=utc_now)
+
+
+class PrefilterStatus(StrEnum):
+    PASSED = "passed"
+    REJECTED = "rejected"
+    DUPLICATE = "duplicate"
+
+
+class RawItem(Base):
+    """One fetched post/comment/review/issue: a short PII-scrubbed snippet plus a link."""
+
+    __tablename__ = "raw_items"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)  # sha256(source:source_id)
+    source: Mapped[str] = mapped_column(String(32), index=True)
+    source_id: Mapped[str] = mapped_column(String(128))
+    query: Mapped[str] = mapped_column(String(200))
+    url: Mapped[str] = mapped_column(Text)
+    title: Mapped[str | None] = mapped_column(Text)
+    snippet: Mapped[str] = mapped_column(Text)
+    context: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True)
+    fetched_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+    score: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    num_comments: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    lang: Mapped[str | None] = mapped_column(String(8))
+    content_hash: Mapped[str] = mapped_column(String(64), index=True)
+    prefilter_score: Mapped[float] = mapped_column(Float)
+    prefilter_status: Mapped[str] = mapped_column(String(16), index=True)
+    prefilter_reasons: Mapped[list[str]] = mapped_column(JSON)
+    has_wtp: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class IngestCursor(Base):
+    """High-water mark per (source, query) so ingest is incremental and idempotent."""
+
+    __tablename__ = "ingest_cursors"
+
+    source: Mapped[str] = mapped_column(String(32), primary_key=True)
+    key: Mapped[str] = mapped_column(String(200), primary_key=True)
+    value: Mapped[str] = mapped_column(String(64))
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now, onupdate=utc_now)

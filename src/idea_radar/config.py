@@ -19,6 +19,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    NonNegativeFloat,
     NonNegativeInt,
     PositiveFloat,
     PositiveInt,
@@ -97,12 +98,79 @@ class FocusConfig(_Section):
     keywords: list[str] = Field(default_factory=list)
 
 
+class IngestConfig(_Section):
+    lookback_days: PositiveInt = 30  # first run only; later runs continue from saved cursors
+    max_items_per_query: PositiveInt = 200
+    request_timeout_s: PositiveFloat = 30.0
+    # Generic on purpose: no personal details in requests to outside services.
+    user_agent: str = "idea-radar/0.1 (personal research tool)"
+    retention_days: PositiveInt = 90  # rejected/duplicate items older than this are purged
+
+
+class HNQuery(_Section):
+    query: str
+    tags: str = "comment"  # Algolia tags: comment | story | ask_hn | (story,comment) ...
+
+
+class HackerNewsConfig(_Section):
+    enabled: bool = True
+    min_interval_s: NonNegativeFloat = 1.0
+    queries: list[HNQuery] = Field(default_factory=list)
+
+
+class StackExchangeConfig(_Section):
+    enabled: bool = True
+    min_interval_s: NonNegativeFloat = 1.0
+    sites: list[str] = Field(default_factory=lambda: ["softwarerecs"])
+    queries: list[str] = Field(default_factory=lambda: [""])  # "" = every new question
+
+
+class GitHubConfig(_Section):
+    enabled: bool = True
+    # Unauthenticated search allows 10 requests/minute; GITHUB_TOKEN raises it to 30.
+    min_interval_s: NonNegativeFloat = 7.0
+    queries: list[str] = Field(default_factory=list)
+
+
+class AppStoreConfig(_Section):
+    enabled: bool = True
+    min_interval_s: NonNegativeFloat = 2.0
+    country: str = "us"
+    max_rating: int = Field(default=2, ge=1, le=5)
+    max_pages: int = Field(default=3, ge=1, le=10)
+    apps: dict[str, int] = Field(default_factory=dict)  # display name -> App Store id
+
+
+class TokenGatedSource(_Section):
+    enabled: bool = False
+
+
+class SourcesConfig(_Section):
+    hackernews: HackerNewsConfig = Field(default_factory=HackerNewsConfig)
+    stackexchange: StackExchangeConfig = Field(default_factory=StackExchangeConfig)
+    github: GitHubConfig = Field(default_factory=GitHubConfig)
+    appstore: AppStoreConfig = Field(default_factory=AppStoreConfig)
+    producthunt: TokenGatedSource = Field(default_factory=TokenGatedSource)
+    reddit: TokenGatedSource = Field(default_factory=TokenGatedSource)
+
+
+class PrefilterConfig(_Section):
+    threshold: float = 1.5  # items scoring below this never reach an LLM
+    min_chars: PositiveInt = 40
+    snippet_chars: PositiveInt = 500
+    # Some sources are problem-shaped by construction (a 1-star review, a software request).
+    source_prior: dict[str, float] = Field(default_factory=dict)
+
+
 class Settings(_Section):
     app: AppConfig = Field(default_factory=AppConfig)
     db: DbConfig = Field(default_factory=DbConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
     focus: FocusConfig = Field(default_factory=FocusConfig)
+    ingest: IngestConfig = Field(default_factory=IngestConfig)
+    sources: SourcesConfig = Field(default_factory=SourcesConfig)
+    prefilter: PrefilterConfig = Field(default_factory=PrefilterConfig)
     # Project root; set by the loader, never read from YAML dumps.
     root: Path = Field(default=Path("."), exclude=True)
 

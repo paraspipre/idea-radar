@@ -57,3 +57,60 @@ focus:
     - integration
     - devops
     - api
+
+ingest:
+  lookback_days: 30         # first run only; later runs continue from saved cursors
+  max_items_per_query: 200
+  request_timeout_s: 30
+  user_agent: idea-radar/0.1 (personal research tool)
+  retention_days: 90        # rejected/duplicate raw items older than this are purged
+
+sources:
+  hackernews:               # Algolia HN Search API, no auth
+    enabled: true
+    min_interval_s: 1.0
+    queries:
+      - {query: "is there a tool", tags: comment}
+      - {query: "I wish there was", tags: comment}
+      - {query: "I would pay for", tags: comment}
+      - {query: "looking for a tool", tags: comment}
+      - {query: "alternative to", tags: ask_hn}
+      - {query: "how do you manage", tags: ask_hn}
+  stackexchange:            # Stack Exchange API 2.3; 300 req/day without STACKEXCHANGE_KEY
+    enabled: true
+    min_interval_s: 1.0
+    sites: [softwarerecs, webapps]
+    queries: [""]           # "" = every new question (these sites are request-shaped)
+  github:                   # GitHub search API; GITHUB_TOKEN optional
+    enabled: true
+    min_interval_s: 7.0
+    queries:
+      - is:issue label:"feature request" reactions:>=10
+      - is:issue label:enhancement reactions:>=20
+  appstore:                 # Apple customer-reviews RSS feed; only low ratings are kept
+    enabled: true
+    min_interval_s: 2.0
+    country: us
+    max_rating: 2
+    max_pages: 3
+    apps:
+      Slack: 618783545
+      Notion: 1232780281
+      Trello: 461504587
+      Asana: 489969512
+      GitHub: 1477376905
+  producthunt:              # needs PRODUCTHUNT_TOKEN; adapter lands when a token exists
+    enabled: false
+  reddit:                   # needs approved API access; adapter lands when credentials exist
+    enabled: false
+
+prefilter:
+  threshold: 1.5            # items scoring below this never reach an LLM
+  min_chars: 40
+  snippet_chars: 500        # what the LLM will see per item (token budget!)
+  source_prior:             # some sources are problem-shaped by construction
+    appstore: 1.0           # a 1-2 star review is a complaint
+    stackexchange: 1.5      # softwarerecs/webapps questions are requests (first live run:
+                            # nearly every SE near-miss at 1.0 was a genuine request)
+    github: 1.0             # upvoted feature requests are explicit demand
+    hackernews: 0.0

@@ -73,3 +73,34 @@ Three interchangeable backends sit behind it: the Claude Agent SDK (default, on 
 **Numbers:** 53 tests, 0 LLM calls during development, 1 call needed to verify on the real subscription (`radar llm smoke`).
 
 **Next:** M2, ingestion from Hacker News, Stack Exchange, GitHub Issues and the App Store, with a free prefilter. Still no LLM calls.
+
+---
+
+## 2026-11-15: M2, ingestion and a free prefilter
+
+**What:** four official, free sources, each fetched incrementally from a saved cursor:
+- **Hacker News** (Algolia API)
+- **Stack Exchange** (`softwarerecs`, `webapps`)
+- **GitHub issue search** (feature requests with lots of 👍)
+- **App Store reviews** (1–2 stars only)
+
+Every item is cleaned from HTML and PII-scrubbed (emails, phone numbers, @handles, URL query strings), then stored as a short snippet plus a link. Usernames are never stored.
+
+**The prefilter is the token budget's best friend.** Before any LLM sees anything, a regex scorer looks for:
+- problem phrases ("I wish there was", "is there a tool", "how do you deal with", "doesn't support")
+- willingness-to-pay phrases ("I'd pay", "$20/month", "too expensive")
+- engagement, and a per-source prior (a 1-star review is a complaint by construction)
+- penalties for hiring posts, self-promotion and spam
+
+**First live run:** 975 items fetched → **66 passed** (7%) → 0 LLM calls. Hacker News is the noisiest source: 27 of 674 new comments passed.
+
+**Small things that mattered:**
+- The snippet the LLM will see is a 500-character window *around the first problem signal*, not the start of the post. That way the expensive tokens land on the relevant sentence.
+- Dedupe by normalized content hash: the same complaint cross-posted twice counts once.
+- I checked each API's real response shape with one request before writing its parser, and the tests replay those shapes through `httpx.MockTransport`.
+
+**Tuning from data, not vibes:** I listed the "near-miss" rejects (score 1.0–1.49). Almost every Stack Exchange one was a genuine software request, so that source's prior went from 1.0 to 1.5. Hacker News near-misses were mixed, so its threshold stays put until the labeled eval (M3) can measure prefilter recall properly.
+
+**Numbers:** 71 tests, 4 live sources, 975 → 66 items, 0 LLM calls.
+
+**Next:** M3, LLM problem extraction (batched, about 25 items per call) plus the hand-labeling tool and the extraction eval.

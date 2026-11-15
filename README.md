@@ -1,6 +1,6 @@
 # Idea Radar
 
-> **Status: M1, the LLM layer, is done.** Next up is M2, ingestion. Design: [PLAN.md](PLAN.md). Progress: [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
+> **Status: M2, ingestion and the free prefilter, is done.** Next up is M3, LLM problem extraction plus the eval harness. Design: [PLAN.md](PLAN.md). Progress: [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
 
 Idea Radar scans public discussions (Hacker News, Stack Exchange, GitHub Issues, Product Hunt, App Store reviews) for real, unmet problems. It then:
 
@@ -61,11 +61,25 @@ uv run radar db init
 | `radar config` | Prints the effective config (defaults + `config/local.yaml` + `RADAR__*` env) | 0 |
 | `radar db init` | Creates or upgrades the schema (Alembic); safe to re-run | 0 |
 | `radar db status` | Shows the current and latest revisions and the run count | 0 |
+| `radar ingest run [-s SOURCE]` | Fetches new items since each source's cursor, then cleans, scrubs PII, prefilters and stores them | 0 |
+| `radar ingest stats` | Shows counts per source and status, plus the top items the LLM will see first | 0 |
 | `radar llm smoke` | Makes one tiny real call: checks subscription auth and measures per-call token overhead | **1** |
 | `radar budget` | Lists recent runs with calls, cache hits, tokens and API-equivalent cost | 0 |
 | `radar version` | Prints the version | 0 |
 
 Exit code **75** means the run stopped cleanly because of its call budget or a Claude usage limit. The next scheduled run resumes, and it won't start before the limit resets.
+
+## Sources (stage 1, no LLM)
+
+| Source | API | Auth | What counts as a signal |
+|---|---|---|---|
+| Hacker News | Algolia HN Search | none | Comments and Ask HN posts matching problem phrases |
+| Stack Exchange | API 2.3 (`softwarerecs`, `webapps`) | optional key | Every new question (they're requests) |
+| GitHub | Issue search | optional token | Feature requests with 10+ reactions |
+| App Store | Apple customer-reviews RSS | none | 1–2 star reviews of tracked apps |
+| Product Hunt, Reddit | not built yet | token / approval needed | Turn on when credentials exist |
+
+Each item is stored as a ≤500-character snippet, PII-scrubbed (emails, phones, @handles, URL query strings removed), with a link back. Usernames are never stored. The **prefilter** scores regex problem signals, willingness-to-pay phrases, focus keywords, engagement and a per-source prior, minus spam and hiring penalties. Only items scoring at least 1.5 ever reach an LLM. First live run: **975 items fetched, 66 passed**.
 
 ## How LLM calls work
 
