@@ -7,7 +7,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, LargeBinary, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from idea_radar.clock import utc_now
@@ -180,3 +180,60 @@ class Problem(Base):
     quote: Mapped[str | None] = mapped_column(Text)  # only kept if found verbatim in the snippet
     quote_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+
+
+class ProblemEmbedding(Base):
+    """Local sentence embedding of a problem ("who: problem"), float32 bytes, L2-normalized."""
+
+    __tablename__ = "problem_embeddings"
+
+    problem_id: Mapped[int] = mapped_column(ForeignKey("problems.id"), primary_key=True)
+    model: Mapped[str] = mapped_column(String(128), primary_key=True)
+    vector: Mapped[bytes] = mapped_column(LargeBinary)
+
+
+class ClusterStatus(StrEnum):
+    ACTIVE = "active"
+    MERGED = "merged"
+
+
+class Cluster(Base):
+    """A recurring problem: several extracted problems that mean the same thing."""
+
+    __tablename__ = "clusters"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    status: Mapped[str] = mapped_column(String(16), index=True, default=ClusterStatus.ACTIVE.value)
+    merged_into: Mapped[int | None] = mapped_column(ForeignKey("clusters.id"))
+    name: Mapped[str | None] = mapped_column(Text)
+    summary: Mapped[str | None] = mapped_column(Text)
+    who: Mapped[str | None] = mapped_column(Text)
+    centroid: Mapped[bytes] = mapped_column(LargeBinary)
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    named_size: Mapped[int] = mapped_column(Integer, default=0)
+    named_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+
+
+class ClusterMember(Base):
+    __tablename__ = "cluster_members"
+
+    problem_id: Mapped[int] = mapped_column(ForeignKey("problems.id"), primary_key=True)
+    cluster_id: Mapped[int] = mapped_column(ForeignKey("clusters.id"), index=True)
+    similarity: Mapped[float] = mapped_column(Float)
+    assigned_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+
+
+class DemandScore(Base):
+    """Demand score of a cluster at one run, with its component breakdown (stage 4)."""
+
+    __tablename__ = "demand_scores"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    cluster_id: Mapped[int] = mapped_column(ForeignKey("clusters.id"), index=True)
+    run_id: Mapped[str | None] = mapped_column(ForeignKey("runs.id"))
+    score: Mapped[float] = mapped_column(Float)
+    components: Mapped[dict[str, Any]] = mapped_column(JSON)
+    weekly_counts: Mapped[list[int]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True, default=utc_now)

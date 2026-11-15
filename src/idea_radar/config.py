@@ -168,6 +168,35 @@ class ExtractionConfig(_Section):
     max_turns: PositiveInt = 3
 
 
+class ClusteringConfig(_Section):
+    embedding_model: str = "BAAI/bge-small-en-v1.5"  # local ONNX via fastembed, no API
+    assign_threshold: float = Field(default=0.90, ge=0, le=1)  # join an existing cluster
+    merge_threshold: float = Field(default=0.94, ge=0, le=1)  # merge two clusters
+    min_cluster_size: int = Field(default=2, ge=2)
+    # Purity guard: HDBSCAN members less similar than this to their centroid go back to the pool.
+    min_member_similarity: float = Field(default=0.90, ge=0, le=1)
+    min_pool: int = Field(default=6, ge=2)  # unassigned problems needed before HDBSCAN runs
+    rename_growth: float = Field(default=0.25, ge=0)  # rename after this much growth
+    naming_batch: PositiveInt = 8  # clusters per naming call
+    examples_per_cluster: PositiveInt = 5
+
+
+class DemandConfig(_Section):
+    weights: dict[str, float] = Field(
+        default_factory=lambda: {
+            "volume": 0.25,
+            "trend": 0.10,
+            "recency": 0.10,
+            "engagement": 0.15,
+            "wtp": 0.20,
+            "corroboration": 0.20,
+        }
+    )
+    half_life_days: PositiveFloat = 30.0
+    trend_window_days: PositiveInt = 28
+    top_n: PositiveInt = 3  # only the top-N clusters get the expensive stages 5-7
+
+
 class Settings(_Section):
     app: AppConfig = Field(default_factory=AppConfig)
     db: DbConfig = Field(default_factory=DbConfig)
@@ -178,6 +207,8 @@ class Settings(_Section):
     sources: SourcesConfig = Field(default_factory=SourcesConfig)
     prefilter: PrefilterConfig = Field(default_factory=PrefilterConfig)
     extraction: ExtractionConfig = Field(default_factory=ExtractionConfig)
+    clustering: ClusteringConfig = Field(default_factory=ClusteringConfig)
+    demand: DemandConfig = Field(default_factory=DemandConfig)
     # Project root; set by the loader, never read from YAML dumps.
     root: Path = Field(default=Path("."), exclude=True)
 

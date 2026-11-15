@@ -133,3 +133,26 @@ Every item is cleaned from HTML and PII-scrubbed (emails, phone numbers, @handle
 **Numbers:** 79 tests, 0 LLM calls during development. The real metrics land as soon as I've labeled about 100 items.
 
 **Next:** M4, local embeddings plus HDBSCAN clustering, batched cluster naming, and demand scores.
+
+---
+
+## 2026-11-15: M4, clustering and demand scoring
+
+**What:** individual complaints become *recurring problems*.
+- Each problem is embedded locally (bge-small via fastembed/ONNX; no API, nothing leaves the machine).
+- New problems first try to join an existing cluster; the leftover pool goes through HDBSCAN.
+- Near-duplicate clusters merge, keeping a `merged_into` pointer so links never break.
+- Naming is the only LLM part: **8 clusters per call**, and only for new clusters or ones that grew more than 25%.
+- A transparent **demand score** combines volume, trend, recency, per-source engagement percentile, willingness to pay and cross-source corroboration. Every component is stored, so the dashboard can show *why* something ranks high.
+
+Stages 2–4 now run as a **LangGraph graph** with typed state. The state holds only counters; all data lives in SQLite, and every node only processes what's pending, so "resume" just means running it again.
+
+**First real run:** 64 problems → 12 clusters, 4 LLM calls in total. The real clusters include "Slack notifications missing", "context loss across AI coding agents", "affordable access to strong AI tools" and "sketch-to-wireframe conversion".
+
+**Calibration lesson:** my first thresholds (assign 0.80, purity floor 0.65) were tuned for a different embedding model. Printing every member's similarity to its cluster centroid showed that bge-small runs hot: unrelated problems score 0.83–0.90, related ones 0.92+. Moving both thresholds to 0.90 removed the impostors (a music app inside the "ChatGPT/Codex" cluster, a TV inside a video-player one). 56% of problems now wait as noise for more evidence. That's on purpose: a bad cluster is worse than no cluster.
+
+**The rate limiter fired for real.** Mid-run, Claude reported I was approaching my 5-hour limit. The pipeline finished its current call and exited with code 75. That exposed a design flaw: a stop also skipped the *free* stages. Now, after a stop, only the LLM stages are skipped; clustering, demand and ranking still run. A stopped run still leaves fresh scores behind.
+
+**Numbers:** 84 tests, silhouette 0.26, 12 clusters, 8 LLM calls total so far for the whole project's real data.
+
+**Next:** M5, competition research (the only stage with web search), sourced market sizing with Python arithmetic, a skeptic agent, and the final opportunity ranking.

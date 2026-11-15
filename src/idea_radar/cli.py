@@ -26,6 +26,15 @@ from idea_radar.db.models import LLMCall, LLMCallStatus, Run, RunKind, RunStatus
 from idea_radar.db.runs import finish_run, rate_limit_block, start_run
 from idea_radar.db.session import make_engine, make_session_factory, redact_url
 from idea_radar.doctor import Status, run_checks
+from idea_radar.embed import Embedder, FastEmbedder
+from idea_radar.evals.clusters import (
+    PAIRS_FILE,
+    append_pair,
+    candidate_pairs,
+    cluster_quality,
+    latest_ranked_clusters,
+    load_pairs,
+)
 from idea_radar.evals.gold import (
     append_gold,
     candidates_to_label,
@@ -44,6 +53,7 @@ from idea_radar.llm.governor import BudgetGovernor
 from idea_radar.llm.prompts import load_prompt
 from idea_radar.llm.types import LLMRequest, LLMResult
 from idea_radar.log import configure_logging
+from idea_radar.pipeline.cluster import cluster_members_text, reset_clusters, run_clustering
 from idea_radar.pipeline.extract import (
     ExtractedProblem,
     LLMItem,
@@ -53,6 +63,7 @@ from idea_radar.pipeline.extract import (
     render_items,
     run_extraction,
 )
+from idea_radar.pipeline.graph import EXTRA_STAGES, PipelineContext, pipeline_stages, run_pipeline
 
 app = typer.Typer(
     name="radar",
@@ -691,3 +702,189 @@ def eval_extraction(
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(results, indent=2), encoding="utf-8")
     typer.echo(f"Saved {out}")
+
+
+def _make_embedder(settings: Settings) -> Embedder:
+    return FastEmbedder(
+        settings.clustering.embedding_model, cache_dir=str(settings.data_path / "models")
+    )
+
+
+StageChoice = Annotated[
+    str, typer.Option("--until", help="Stop after this stage (default: run every stage).")
+]
+
+
+@app.command("run")
+def run_command(
+    ctx: typer.Context,
+    until: StageChoice = "",
+    skip: Annotated[
+        list[str] | None, typer.Option("--skip", help="Skip a stage (repeatable).")
+    ] = None,
+) -> None:
+    """Run the pipeline graph (stages 2-8) under the call budget. Resumable: just run it again."""
+    settings = _settings(ctx)
+    until = until or pipeline_stages()[-1]
+    unknown = sorted({until, *(skip or [])} - set(pipeline_stages()))
+    if unknown:
+        typer.secho(f"Unknown stage(s): {', '.join(unknown)}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=exit_codes.USAGE)
+    engine, factory = _open_db(settings)
+    try:
+        run_id, client = _begin_llm_run(settings, factory, RunKind.PIPELINE)
+        context = PipelineContext(
+            settings=settings,
+            factory=factory,
+            client=client,
+            embedder=_make_embedder(settings),
+            run_id=run_id,
+            until=until,
+            skip=frozenset(skip or []),
+            extra_stages=list(EXTRA_STAGES),
+        )
+        try:
+            state = asyncio.run(run_pipeline(context))
+        except LLMError as exc:
+            _fail_llm_run(factory, run_id, client, exc)
+            return
+        for stage, summary in state.get("summary", {}).items():
+            details = ", ".join(f"{k}={v}" for k, v in summary.items() if k != "top")
+            typer.echo(f"{stage:<12} {details}")
+        typer.echo(f"LLM calls this run: {client.governor.calls}")
+        if context.ranked:
+            typer.echo("")
+            typer.echo("Top clusters by demand:")
+            for r in context.ranked[: settings.demand.top_n + 2]:
+                typer.echo(f"  {r.score:.3f}  ({r.size:>2} items)  {r.name or '(unnamed)'}")
+        _end_llm_run(factory, run_id, client, context.stop)
+    finally:
+        engine.dispose()
+
+
+@app.command("clusters")
+def clusters_command(
+    ctx: typer.Context,
+    top: Annotated[int, typer.Option(min=1, help="How many clusters to show.")] = 10,
+    members: Annotated[bool, typer.Option("--members", help="Show member problems.")] = False,
+) -> None:
+    """Clusters ranked by their latest demand score, with the score breakdown. No LLM calls."""
+    settings = _settings(ctx)
+    engine, factory = _open_db(settings)
+    try:
+        ranked = latest_ranked_clusters(factory, limit=top)
+        if not ranked:
+            typer.echo("No scored clusters yet. Run: uv run radar run")
+            return
+        for row in ranked:
+            norm = row["components"]["normalized"]
+            parts = "  ".join(f"{k[:5]}={v:.2f}" for k, v in norm.items())
+            typer.secho(
+                f"{row['score']:.3f}  [{row['size']} items, {row['n_sources']} sources]  "
+                f"{row['name'] or '(unnamed)'}",
+                bold=True,
+            )
+            typer.echo(f"        {parts}")
+            if members:
+                for m in cluster_members_text(factory, row["cluster_id"])[:6]:
+                    typer.echo(f"        - [{m['source']}] {m['who']}: {m['problem']}")
+    finally:
+        engine.dispose()
+
+
+@eval_app.command("label-pairs")
+def eval_label_pairs(
+    ctx: typer.Context,
+    n: Annotated[int, typer.Option(min=1, help="How many pairs to label.")] = 30,
+    seed: Annotated[int | None, typer.Option(help="Shuffle seed.")] = None,
+) -> None:
+    """Hand-label problem pairs (same underlying problem?) into evals/data/cluster_pairs.jsonl."""
+    settings = _settings(ctx)
+    path = settings.root / PAIRS_FILE
+    done = {(p.a, p.b) for p in load_pairs(path)}
+    engine, factory = _open_db(settings)
+    try:
+        pairs = candidate_pairs(
+            factory, model=settings.clustering.embedding_model, exclude=done, n=n, seed=seed
+        )
+    finally:
+        engine.dispose()
+    if not pairs:
+        typer.echo("No candidate pairs yet. Run `radar run` so there are clusters first.")
+        return
+    saved = 0
+    for index, (a, b) in enumerate(pairs, start=1):
+        typer.echo("")
+        typer.secho(f"[{index}/{len(pairs)}]", bold=True)
+        typer.echo(f"A: {a.text}")
+        typer.echo(f"B: {b.text}")
+        answer = str(typer.prompt("Same underlying problem? [y]es/[n]o/[s]kip/[q]uit", default="s"))
+        answer = answer.strip().lower()
+        if answer.startswith("q"):
+            break
+        if not answer.startswith(("y", "n")):
+            continue
+        append_pair(path, a, b, same=answer.startswith("y"))
+        saved += 1
+    typer.echo(f"Saved {saved} pair labels to {path}.")
+
+
+@eval_app.command("clusters")
+def eval_clusters(ctx: typer.Context) -> None:
+    """Cluster quality: pairwise P/R/F1 vs labeled pairs, plus noise ratio and silhouette. Free."""
+    settings = _settings(ctx)
+    engine, factory = _open_db(settings)
+    try:
+        result = cluster_quality(
+            factory,
+            model=settings.clustering.embedding_model,
+            pairs=load_pairs(settings.root / PAIRS_FILE),
+        )
+    finally:
+        engine.dispose()
+    typer.echo(
+        f"Problems: {result['n_problems']}  clustered: {result['n_clustered']}  "
+        f"clusters: {result['n_clusters']}  noise ratio: {fmt(result['noise_ratio'])}  "
+        f"silhouette: {fmt(result['silhouette'])}"
+    )
+    pairwise = result.get("pairwise")
+    if pairwise:
+        typer.echo(
+            f"Pairwise vs {pairwise['tp'] + pairwise['fp'] + pairwise['fn'] + pairwise['tn']} "
+            f"labeled pairs: precision {fmt(pairwise['precision'])}  "
+            f"recall {fmt(pairwise['recall'])}  F1 {fmt(pairwise['f1'])}"
+        )
+    else:
+        typer.secho("No labeled pairs yet: uv run radar eval label-pairs", fg=typer.colors.YELLOW)
+    out = settings.root / "evals" / "results" / "clusters_latest.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(result, indent=2), encoding="utf-8")
+    typer.echo(f"Saved {out}")
+
+
+@app.command("recluster")
+def recluster_command(
+    ctx: typer.Context,
+    yes: Annotated[
+        bool, typer.Option("--yes", help="Confirm deleting the current clusters.")
+    ] = False,
+) -> None:
+    """Rebuild clusters from stored embeddings (after tuning thresholds). Problems are kept."""
+    settings = _settings(ctx)
+    if not yes:
+        typer.secho(
+            "This deletes all clusters, memberships and demand scores (they are recomputed by "
+            "`radar run --skip extract`). Re-run with --yes.",
+            fg=typer.colors.YELLOW,
+        )
+        raise typer.Exit(code=exit_codes.USAGE)
+    engine, factory = _open_db(settings)
+    try:
+        removed = reset_clusters(factory)
+        report = run_clustering(settings, factory, _make_embedder(settings))
+    finally:
+        engine.dispose()
+    typer.echo(
+        f"Removed {removed} clusters. " + ", ".join(f"{k}={v}" for k, v in vars(report).items())
+    )
+    typer.echo("Next: uv run radar run --skip extract   (names clusters, scores demand)")

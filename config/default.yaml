@@ -76,6 +76,10 @@ sources:
       - {query: "looking for a tool", tags: comment}
       - {query: "alternative to", tags: ask_hn}
       - {query: "how do you manage", tags: ask_hn}
+      - {query: "does anyone know a tool", tags: comment}
+      - {query: "so frustrating", tags: comment}
+      - {query: "we ended up building", tags: comment}
+      - {query: "too expensive for", tags: comment}
   stackexchange:            # Stack Exchange API 2.3; 300 req/day without STACKEXCHANGE_KEY
     enabled: true
     min_interval_s: 1.0
@@ -87,6 +91,7 @@ sources:
     queries:
       - is:issue label:"feature request" reactions:>=10
       - is:issue label:enhancement reactions:>=20
+      - is:issue label:feature-request reactions:>=10
   appstore:                 # Apple customer-reviews RSS feed; only low ratings are kept
     enabled: true
     min_interval_s: 2.0
@@ -119,3 +124,21 @@ extraction:                 # stage 2 (LLM, small tier)
   batch_size: 25            # items per call; with budget.per_stage.extract=10 -> 250 items/run
   prompt_version: 1         # llm/prompts/extract.v1.md; bump to re-extract everything
   max_turns: 3
+
+clustering:                 # stage 3 (local embeddings + HDBSCAN; naming is the only LLM part)
+  embedding_model: BAAI/bge-small-en-v1.5
+  assign_threshold: 0.90    # cosine to an existing centroid to join it (bge-small sims run high:
+                            # unrelated problems score 0.83-0.90, related ones 0.92+)
+  merge_threshold: 0.94     # cosine between centroids to merge clusters
+  min_cluster_size: 2
+  min_member_similarity: 0.90  # purity guard: weaker HDBSCAN members return to the pool
+  min_pool: 6               # unassigned problems needed before HDBSCAN runs
+  rename_growth: 0.25       # re-name a cluster only after it grows 25%
+  naming_batch: 8           # clusters named per LLM call
+  examples_per_cluster: 5
+
+demand:                     # stage 4 (pure Python, no LLM)
+  weights: {volume: 0.25, trend: 0.10, recency: 0.10, engagement: 0.15, wtp: 0.20, corroboration: 0.20}
+  half_life_days: 30
+  trend_window_days: 28
+  top_n: 3                  # only these clusters get competition/sizing/skeptic (stages 5-7)
