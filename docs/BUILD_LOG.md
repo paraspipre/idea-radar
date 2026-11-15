@@ -104,3 +104,32 @@ Every item is cleaned from HTML and PII-scrubbed (emails, phone numbers, @handle
 **Numbers:** 71 tests, 4 live sources, 975 → 66 items, 0 LLM calls.
 
 **Next:** M3, LLM problem extraction (batched, about 25 items per call) plus the hand-labeling tool and the extraction eval.
+
+---
+
+## 2026-11-15: M3, LLM problem extraction plus the eval harness
+
+**What:** stage 2 turns prefilter-passed snippets into structured problems:
+- who has it
+- the underlying need, in neutral words
+- the current workaround
+- urgency from 1 to 5
+- willingness to pay (none, weak or strong)
+- a verbatim quote
+
+**Token design:**
+- About **25 items per call**, each a ~500-character snippet.
+- The model returns *only the items that are problems*; everything else is omitted instead of echoed, which cuts output tokens.
+- Every processed item is marked per extractor version (prompt version + model), so nothing is ever sent twice.
+- If the model's JSON doesn't fit the schema, the batch is split in half *once*, then given up on. No infinite retry loops burning quota.
+- On my real data: **66 items → 3 calls, about 150 input tokens per item.** `radar extract --dry-run` prints the exact prompt and that estimate without spending anything.
+
+**Anti-hallucination, cheaply:** each extracted problem must carry a short quote, and Python checks that the quote actually appears in the source snippet (ignoring case and punctuation). Unverified quotes are dropped and flagged, so the dashboard only ever shows evidence that exists.
+
+**Evals before vibes:** `radar eval label` is a tiny terminal labeling tool. It samples a *mix* of items the prefilter passed and rejected, because otherwise you can never measure what the free filter throws away. `radar eval extraction` reports:
+- **prefilter recall**, which costs nothing,
+- **extraction precision, recall and F1** against my labels, which costs about one LLM call per 25 gold items and is cached after that.
+
+**Numbers:** 79 tests, 0 LLM calls during development. The real metrics land as soon as I've labeled about 100 items.
+
+**Next:** M4, local embeddings plus HDBSCAN clustering, batched cluster naming, and demand scores.

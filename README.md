@@ -1,6 +1,6 @@
 # Idea Radar
 
-> **Status: M2, ingestion and the free prefilter, is done.** Next up is M3, LLM problem extraction plus the eval harness. Design: [PLAN.md](PLAN.md). Progress: [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
+> **Status: M3 (LLM problem extraction plus the eval harness) is built and tested offline.** The first real extraction run and the eval numbers are pending, and M4 (clustering) is next. Design: [PLAN.md](PLAN.md). Progress: [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
 
 Idea Radar scans public discussions (Hacker News, Stack Exchange, GitHub Issues, Product Hunt, App Store reviews) for real, unmet problems. It then:
 
@@ -63,6 +63,10 @@ uv run radar db init
 | `radar db status` | Shows the current and latest revisions and the run count | 0 |
 | `radar ingest run [-s SOURCE]` | Fetches new items since each source's cursor, then cleans, scrubs PII, prefilters and stores them | 0 |
 | `radar ingest stats` | Shows counts per source and status, plus the top items the LLM will see first | 0 |
+| `radar extract --dry-run` | Shows pending items, batches, token estimate and the exact prompt, without calling the model | 0 |
+| `radar extract [--max-batches N]` | Stage 2: about 25 items per call; only problems come back; quotes are verified against the source | ≤ 10 |
+| `radar eval label` | Hand-label items (problem? willing to pay?) into `evals/data/extraction_gold.jsonl` | 0 |
+| `radar eval extraction [--yes]` | Prefilter recall (free), plus extraction precision, recall and F1 (LLM, cached) | 0 / ~n÷25 |
 | `radar llm smoke` | Makes one tiny real call: checks subscription auth and measures per-call token overhead | **1** |
 | `radar budget` | Lists recent runs with calls, cache hits, tokens and API-equivalent cost | 0 |
 | `radar version` | Prints the version | 0 |
@@ -108,7 +112,16 @@ uv run mypy
 
 ## Evals
 
-Coming in M3 and M4: extraction precision and recall, prefilter recall, and cluster pairwise F1 and ARI, measured on a hand-labeled set.
+The gold set is hand-labeled with `radar eval label`. It deliberately mixes prefilter-passed and prefilter-rejected items, so the free filter's recall can be measured, not assumed.
+
+| Metric | Value | Notes |
+|---|---|---|
+| Prefilter recall | _pending labels_ | How many real problems the free filter lets through |
+| Extraction precision / recall / F1 | _pending first run_ | `extract.v1` on `haiku`, batch 25 |
+| Strong-WTP precision | _pending_ | |
+| Cluster pairwise F1 / ARI | _M4_ | |
+
+Results are written to `evals/results/extraction_latest.json`.
 
 ## License
 

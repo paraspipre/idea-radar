@@ -143,3 +143,40 @@ class IngestCursor(Base):
     key: Mapped[str] = mapped_column(String(200), primary_key=True)
     value: Mapped[str] = mapped_column(String(64))
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now, onupdate=utc_now)
+
+
+class ExtractionStatus(StrEnum):
+    PROBLEM = "problem"
+    NOT_PROBLEM = "not_problem"
+    ERROR = "error"
+
+
+class Extraction(Base):
+    """Marks a raw item as processed by one extractor version, so it is never sent twice."""
+
+    __tablename__ = "extractions"
+
+    raw_item_id: Mapped[str] = mapped_column(ForeignKey("raw_items.id"), primary_key=True)
+    extractor_version: Mapped[str] = mapped_column(String(64), primary_key=True)
+    status: Mapped[str] = mapped_column(String(16), index=True)
+    run_id: Mapped[str | None] = mapped_column(ForeignKey("runs.id"))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+
+
+class Problem(Base):
+    """A problem extracted from one raw item (stage 2 output)."""
+
+    __tablename__ = "problems"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    raw_item_id: Mapped[str] = mapped_column(ForeignKey("raw_items.id"), index=True)
+    extractor_version: Mapped[str] = mapped_column(String(64))
+    who: Mapped[str] = mapped_column(Text)
+    problem: Mapped[str] = mapped_column(Text)
+    workaround: Mapped[str | None] = mapped_column(Text)
+    urgency: Mapped[int] = mapped_column(Integer)
+    wtp: Mapped[str] = mapped_column(String(8))  # none | weak | strong
+    wtp_strength: Mapped[float] = mapped_column(Float)
+    quote: Mapped[str | None] = mapped_column(Text)  # only kept if found verbatim in the snippet
+    quote_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)

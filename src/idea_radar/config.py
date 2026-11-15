@@ -162,6 +162,12 @@ class PrefilterConfig(_Section):
     source_prior: dict[str, float] = Field(default_factory=dict)
 
 
+class ExtractionConfig(_Section):
+    batch_size: PositiveInt = 25  # items per LLM call (the main token-efficiency lever)
+    prompt_version: PositiveInt = 1  # llm/prompts/extract.v<N>.md; bump to re-extract
+    max_turns: PositiveInt = 3
+
+
 class Settings(_Section):
     app: AppConfig = Field(default_factory=AppConfig)
     db: DbConfig = Field(default_factory=DbConfig)
@@ -171,6 +177,7 @@ class Settings(_Section):
     ingest: IngestConfig = Field(default_factory=IngestConfig)
     sources: SourcesConfig = Field(default_factory=SourcesConfig)
     prefilter: PrefilterConfig = Field(default_factory=PrefilterConfig)
+    extraction: ExtractionConfig = Field(default_factory=ExtractionConfig)
     # Project root; set by the loader, never read from YAML dumps.
     root: Path = Field(default=Path("."), exclude=True)
 

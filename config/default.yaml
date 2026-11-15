@@ -114,3 +114,8 @@ prefilter:
                             # nearly every SE near-miss at 1.0 was a genuine request)
     github: 1.0             # upvoted feature requests are explicit demand
     hackernews: 0.0
+
+extraction:                 # stage 2 (LLM, small tier)
+  batch_size: 25            # items per call; with budget.per_stage.extract=10 -> 250 items/run
+  prompt_version: 1         # llm/prompts/extract.v1.md; bump to re-extract everything
+  max_turns: 3
